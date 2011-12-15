@@ -6,8 +6,13 @@ package io.akka.tutorial
  * Date: 11/12/15
  */
 
-class ClientRunner {
+object ClientRunner {
+  def main(args: Array[String]) = run
+
   def run = {
+
+//    val chatService = Actor.actorOf[ChatService].start()
+
     val client1 = new ChatClient("jonas")
     client1.login
     val client2 = new ChatClient("patrik")
@@ -24,5 +29,6 @@ class ClientRunner {
 
     client1.logout
     client2.logout
+//    chatService.stop()
   }
 }

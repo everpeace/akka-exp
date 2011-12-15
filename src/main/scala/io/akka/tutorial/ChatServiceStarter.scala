@@ -1,6 +1,6 @@
 package io.akka.tutorial
 
-import akka.actor.Actor
+import akka.actor.Actor._
 
 /**
  *
@@ -8,8 +8,10 @@ import akka.actor.Actor
  * Date: 11/12/15
  */
 
-class ChatServiceStarter {
-       def main()={
-           Actor.actorOf[ChatService].start()
-       }
+object ChatServiceStarter {
+  def main(args: Array[String]) = run
+
+  def run:Unit = {
+    actorOf[ChatService].start()
+  }
 }
