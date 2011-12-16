@@ -11,21 +11,21 @@ import akka.actor.Actor
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case RequestLoad() => this.self.reply(reportLoad)
+    case msg@RequestLoad() => this.self.reply(ReportLoad(reportLoad))
   }
 
-  protected def reportLoad: ReportLoad
+  protected def reportLoad:Float
 }
 
 trait ConstantLoadReporter extends LoadReporter {
   this: Actor =>
   val load: Float
 
-  protected def reportLoad = ReportLoad(load)
+  protected def reportLoad = load
 }
 
 trait ThroughputAverageAsLoadReporter extends LoadReporter {
   this: Actor =>
   // TODO not yet implemented
-  protected def reportLoad = ReportLoad(1)
+  protected def reportLoad = 1
 }

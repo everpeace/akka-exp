@@ -30,7 +30,7 @@ trait MinLoadSelector extends Selector {
 
   private def update = actors.foreach {
     a => atomic {
-      (a ? RequestLoad).as[ReportLoad] match {
+      (a ? RequestLoad()).as[ReportLoad] match {
         case Some(ReportLoad(load)) => loads +=(a, load)
       }
     }

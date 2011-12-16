@@ -12,7 +12,7 @@ import akka.actor.UntypedChannel._
  */
 
 trait SelectiveRouter extends Dispatcher {
-  self: Actor =>
+  this: Actor =>
   protected val actors: Seq[ActorRef]
 
   protected def routes = {
