@@ -10,5 +10,6 @@ import akka.actor.Actor
 
 trait MemoryChatStorageFactory {
   this: Actor =>
-  val storage = this.self.spawnLink[MemoryChatStorage]
+  val storage =  Actor.actorOf(new MemoryChatStorage)
+  this.self.startLink(storage)
 }
