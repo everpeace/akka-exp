@@ -1,6 +1,6 @@
 package org.everpeace.akka.routing
 
-import akka.actor.Actor._
+import akka.actor.Actor
 
 /**
  *
@@ -9,18 +9,23 @@ import akka.actor.Actor._
  */
 // actor にこの LoadReporter or LoadReporter の sub trait を mix-in する。
 trait LoadReporter {
-    protected def requestLoad: Receive = {
-      case RequestLoad() => reportLoad
-    }
-     protected def reportLoad:ReportLoad
+  this: Actor =>
+  protected def requestLoad: Receive = {
+    case RequestLoad() => this.self.reply(reportLoad)
+  }
+
+  protected def reportLoad: ReportLoad
 }
 
-trait ConstantLoadReporter extends LoadReporter{
-  val load:Float
-  protected def  reportLoad = ReportLoad(load)
+trait ConstantLoadReporter extends LoadReporter {
+  this: Actor =>
+  val load: Float
+
+  protected def reportLoad = ReportLoad(load)
 }
 
-trait ThroughputAverageAsLoadReporter  extends LoadReporter{
+trait ThroughputAverageAsLoadReporter extends LoadReporter {
+  this: Actor =>
   // TODO not yet implemented
   protected def reportLoad = ReportLoad(1)
 }

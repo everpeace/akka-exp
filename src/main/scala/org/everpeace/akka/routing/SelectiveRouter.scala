@@ -15,7 +15,9 @@ trait SelectiveRouter extends Dispatcher {
   self: Actor =>
   protected val actors: Seq[ActorRef]
 
-  protected def routes = _ => select(_)
+  protected def routes = {
+    case x => select(x)
+  }
 
   protected def select: Any => ActorRef
 

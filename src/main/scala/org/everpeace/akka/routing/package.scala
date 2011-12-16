@@ -7,5 +7,5 @@ package org.everpeace.akka.routing
  */
 
 package object routing{
-     def minLoadSelectLoadBalancer() = akka.routing.Routing.loadBalancer()
+
 }

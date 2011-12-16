@@ -28,10 +28,10 @@ trait MinLoadSelector extends Selector {
     }
   }
 
-  override def update = actors.foreach {
+  private def update = actors.foreach {
     a => atomic {
-      a ! RequestLoad match {
-        case ReportLoad(load) => loads +=(a, load)
+      (a ? RequestLoad).as[ReportLoad] match {
+        case Some(ReportLoad(load)) => loads +=(a, load)
       }
     }
   }
