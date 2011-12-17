@@ -46,7 +46,7 @@ trait LoadSequenceReporter extends LoadReporter {
 
   protected def reportLoad = {
     val load = loadSeq.next()
-    EventHandler.info(this, "%s report Load %f" format(name, load))
+    EventHandler.info(this, "[name=%s uuid=%s] report Load %f" format(name, self.uuid, load))
     load
   }
 }
@@ -61,7 +61,7 @@ class SampleActor(val name: String, val loadSeq: InfiniteIterator[Load]) extends
   def receive = requestLoad orElse forward
 
   def forward: Receive = {
-    case x => EventHandler.info(this, "%s called" format name)
+    case x => EventHandler.info(this, "[name=%s uuid=%s] called" format(name, self.uuid))
   }
 }
 

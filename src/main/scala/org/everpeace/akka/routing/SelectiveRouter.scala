@@ -29,7 +29,11 @@ trait SelectiveRouter extends Dispatcher {
     case x => select(x) match {
       case Some(ref) => ref
       // selectが何らかの理由でNoneを返した場合はランダムに選ぶ
-      case None => actors(scala.util.Random.nextInt(actors.length))
+      case None => {
+        EventHandler.info(this, "minimum load actor cannot be selected.")
+        EventHandler.info(this, "message [" + x.toString + "] will be routed random target.")
+        actors(scala.util.Random.nextInt(actors.length))
+      }
     }
   }
 
@@ -116,7 +120,9 @@ trait PollingCollector extends Collector {
     a => atomic {
       (a ? RequestLoad).as[ReportLoad] match {
         case Some(ReportLoad(load)) => loadMap +=(a, load)
-        case None =>
+        case None => {
+          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
+        }
       }
     }
   }
@@ -127,7 +133,9 @@ trait PollingCollector extends Collector {
     actors.foreach {
       a => (a ? RequestLoad).as[ReportLoad] match {
         case Some(ReportLoad(load)) => loadMap +=(a, load)
-        case None =>
+        case None => {
+          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
+        }
       }
     }
   }
@@ -157,7 +165,9 @@ trait OnDemandCollector extends Collector {
     a => atomic {
       (a ? RequestLoad).as[ReportLoad] match {
         case Some(ReportLoad(load)) => loads +=(a, load)
-        case None =>
+        case None => {
+          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
+        }
       }
     }
   }
@@ -168,7 +178,9 @@ trait OnDemandCollector extends Collector {
     actors.foreach {
       a => (a ? RequestLoad).as[ReportLoad] match {
         case Some(ReportLoad(load)) => loads +=(a, load)
-        case None =>
+        case None => {
+          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
+        }
       }
     }
   }
