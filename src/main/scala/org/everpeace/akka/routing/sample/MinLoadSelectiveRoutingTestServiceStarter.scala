@@ -42,7 +42,7 @@ class MinLoadSelectiveRoutingService extends Actor {
 trait LoadSequenceReporter extends LoadReporter {
   this: Actor =>
   val name: String
-  val loadSeq: InfiniteIterator[Float]
+  val loadSeq: InfiniteIterator[Load]
 
   protected def reportLoad = {
     val load = loadSeq.next()
@@ -53,11 +53,11 @@ trait LoadSequenceReporter extends LoadReporter {
 
 // sample用のサービスActorのActorRef用のextractor
 object SampleActor {
-  def apply(name: String, loads: Float*) = Actor.actorOf(new SampleActor(name, new CyclicIterator[Float](loads.toList)))
+  def apply(name: String, loads: Load*) = Actor.actorOf(new SampleActor(name, new CyclicIterator[Load](loads.toList)))
 }
 
 // sample用アクターサービス
-class SampleActor(val name: String, val loadSeq: InfiniteIterator[Float]) extends Actor with LoadSequenceReporter {
+class SampleActor(val name: String, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
   def receive = requestLoad orElse forward
 
   def forward: Receive = {

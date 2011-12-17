@@ -11,13 +11,14 @@ import akka.actor.Actor
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case msg@RequestLoad() => this.self.reply(ReportLoad(convert(reportLoad)))
+    case msg @ RequestLoad => this.self.reply(ReportLoad(convert(reportLoad)))
   }
+  // strategy for what value is reported
+  protected def convert(reported: Load): Load = reported
 
-  protected def convert(reported: Float): Float = reported
-
-  // override by yourself!
-  protected def reportLoad: Float
+  // report present load
+  // override it yourself!
+  protected def reportLoad: Load
 }
 
 // k 回分のloadの平均値をloadとして返すようなLoadReporter
