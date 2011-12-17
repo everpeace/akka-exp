@@ -47,7 +47,7 @@ trait MinLoadSelector extends Selector {
   // TODO loadを集めるのはpollingするようにしたい。
   override def select = _ => {
     if (loads.isEmpty) {
-      updateFirst
+      updateLoadsFirst
       minLoadActor
     } else {
       updateLoads
@@ -56,14 +56,17 @@ trait MinLoadSelector extends Selector {
   }
 
   // 最小負荷actorを探すのはatomicに。
-  // TODO minLoadとminActorを保持してupdateの時にこの値を変更して、選ぶ時はそいつをただ返すだけにする。
   private def minLoadActor = atomic {
-    val target = loads.reduce[(ActorRef, Float)] {
-      (min, candidate) =>
-        if (min._2 > candidate._2) candidate
-        else min
+    if (!loads.isEmpty) {
+      val target = loads.reduce[(ActorRef, Float)] {
+        (min, candidate) =>
+          if (min._2 > candidate._2) candidate
+          else min
+      }
+      Option(target._1)
+    } else {
+      None
     }
-    Some(target._1)
   }
 
   //途中で集める時は一個ずつ集めるのをatomicに
@@ -78,7 +81,7 @@ trait MinLoadSelector extends Selector {
   }
 
   //最初だけは全部集め終わるのをatomicに
-  private def updateFirst = atomic {
+  private def updateLoadsFirst = atomic {
     actors.foreach {
       a =>
         (a ? RequestLoad()).as[ReportLoad] match {
