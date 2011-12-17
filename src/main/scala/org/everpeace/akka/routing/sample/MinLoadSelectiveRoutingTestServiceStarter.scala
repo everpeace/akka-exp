@@ -20,6 +20,7 @@ object MinLoadSelectiveRoutingTestServiceStarter {
   }
 }
 
+// test 用のリモートサービス MinLoadSelectiveRouterを作ってリモートサービスに登録する
 class MinLoadSelectiveRoutingService extends Actor {
   private val a = SampleActor("a", 3, 2, 1).start()
   private val b = SampleActor("b", 4, 3, 2, 1).start()
@@ -37,6 +38,7 @@ class MinLoadSelectiveRoutingService extends Actor {
   }
 }
 
+//テスト用にloadの数値列を与えてそれを順番に返すReporter
 trait LoadSequenceReporter extends LoadReporter {
   this: Actor =>
   val name: String
@@ -49,10 +51,12 @@ trait LoadSequenceReporter extends LoadReporter {
   }
 }
 
+// sample用のサービスActorのActorRef用のextractor
 object SampleActor {
   def apply(name: String, loads: Float*) = Actor.actorOf(new SampleActor(name, new CyclicIterator[Float](loads.toList)))
 }
 
+// sample用アクターサービス
 class SampleActor(val name: String, val loadSeq: InfiniteIterator[Float]) extends Actor with LoadSequenceReporter {
   def receive = requestLoad orElse forward
 
@@ -61,11 +65,12 @@ class SampleActor(val name: String, val loadSeq: InfiniteIterator[Float]) extend
   }
 }
 
-
+// クライアント
+// Serviceを立ち上げた状態でこれをconsoleからnewしてcallすると動きが確認出来る
 class SampleClient {
   val server = Actor.remote.actorFor("routing:service", "localhost", 2552).start()
 
-  def post = server ! 1
+  def call = server ! 1
 
   def stop = server stop
 }

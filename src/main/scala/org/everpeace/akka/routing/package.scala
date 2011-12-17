@@ -10,11 +10,13 @@ import scala.collection.JavaConversions._
  */
 
 package object routing {
+  // MinLoadSelectiveRouterのコンストラクタユーティリティ
   def minLoadSelectiveRouter(as: java.util.List[ActorRef]): ActorRef =
     Actor.actorOf(new Actor with SelectiveRouter with MinLoadSelector {
       protected val actors = as toList
     })
 
+  // MinLoadSelectiveRouterのコンストラクタユーティリティ
   def minLoadSelectiveRouter(as: Seq[ActorRef]): ActorRef =
     Actor.actorOf(new Actor with SelectiveRouter with MinLoadSelector {
       protected val actors = as

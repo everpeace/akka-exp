@@ -11,21 +11,19 @@ import akka.actor.Actor
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case msg@RequestLoad() => this.self.reply(ReportLoad(reportLoad))
+    case msg@RequestLoad() => this.self.reply(ReportLoad(convert(reportLoad)))
   }
 
-  protected def reportLoad:Float
+  protected def convert(reported: Float): Float = reported
+
+  // override by yourself!
+  protected def reportLoad: Float
 }
 
-trait ConstantLoadReporter extends LoadReporter {
-  this: Actor =>
-  val load: Float
-
-  protected def reportLoad = load
-}
-
+// k 回分のloadの平均値をloadとして返すようなLoadReporter
 trait ThroughputAverageAsLoadReporter extends LoadReporter {
   this: Actor =>
-  // TODO not yet implemented
-  protected def reportLoad = 1
+  val range: Int
+  // TODO implement this!
+  protected def convert = reportLoad
 }
