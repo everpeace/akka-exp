@@ -1,13 +1,15 @@
 package org.everpeace.akka.routing
 
 import akka.routing.Dispatcher
-import akka.actor.{ActorRef, Actor}
 import akka.actor.ForwardableChannel._
 import akka.actor.UntypedChannel._
 import akka.event.EventHandler
-import akka.stm.TransactionalMap
-import akka.stm.atomic
-import java.util.concurrent.TimeUnit
+import akka.actor.{Scheduler, ActorRef, Actor}
+import akka.transactor.{Coordinated, Transactor}
+import akka.util.duration._
+import akka.stm.{Ref, TransactionFactory, TransactionalMap, atomic}
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
+import scala.collection.JavaConversions._
 
 /**
  *
@@ -78,111 +80,100 @@ trait Collector {
 
   //保持しているactor,loadの組を返す
   // override it yourself!
-  def collectLoads: Any => Seq[(ActorRef, Float)]
+  def collectLoads: Any => Seq[(ActorRef, Load)]
 }
 
-trait PollingCollector extends Collector {
-  protected val initialDelay: Long
-  protected val betweenPollingDelay: Long
-  protected val delayTimeUnit: TimeUnit
-  private[this] val loadMap = TransactionalMap[ActorRef, Float]()
+trait MapStorageCollector extends Collector {
+  protected val loadMap = new ConcurrentHashMap[ActorRef, Ref[Float]]()
+  protected val initialized = Ref(false)
+  atomic {
+    for (actor <- actors) loadMap.put(actor, Ref[Float]())
+  }
 
-  // Actor polling and update loads.
-  private val pollingActor = Actor.actorOf(new Actor {
+  //個々のloadをpollingしてupdateするtransactors
+  //トランザクションの境界はCoorinatedオブジェクトで外側から制御する。
+  private val updators = for (a <- actors) yield Actor.actorOf(
+    new Transactor {
+      def atomically = {
+        case msg@RequestLoad => (a ? RequestLoad).as[ReportLoad] match {
+          case Some(ReportLoad(load)) => loadMap.get(a).alter(_ => load)
+          case None => {
+            EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
+          }
+        }
+      }
+    }
+  ).start()
+
+  def loadSeq = {
+    val _loadSeq: Seq[(ActorRef, Load)] =
+      loadMap.entrySet().toSeq.flatMap(entry => atomic {
+        entry.getValue.opt match {
+          case Some(load) => Seq((entry.getKey, load))
+          case None => Seq.empty
+        }
+      })
+    EventHandler.info(this, _loadSeq)
+    _loadSeq
+  }
+
+  //途中で集める時は一個ずつ集めるのをatomicに
+  protected def updateLoads
+  = updators foreach {
+    _ ! Coordinated(RequestLoad)
+  }
+
+  //最初だけは全部集め終わるのをatomicに
+  protected def updateLoadsFirst
+  = {
+    val coordinated = Coordinated()
+    updators foreach {
+      _ ! coordinated(RequestLoad)
+    }
+    coordinated atomic {}
+  }
+}
+
+trait PollingCollector extends MapStorageCollector {
+  // these vals should be override as 'lazy val'
+  // because polling actor starts itself and polling here
+  // using these values.
+  val initialDelay: Long
+  val betweenPollingDelay: Long
+  val delayTimeUnit: TimeUnit
+
+  // Actor which polls updators
+  protected val pollingActor = Actor.actorOf(new Actor {
     protected def receive = {
       case msg@RequestLoad
-      => if (loadMap.isEmpty) {
+      => if (!initialized.get()) {
         updateLoadsFirst
+        atomic {
+          initialized.set(true)
+        }
       } else {
         updateLoads
       }
     }
   })
+  pollingActor.start
+  Scheduler.schedule(pollingActor, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
 
-  override def collectLoads = _ => {
-    val loadSeq = atomic {
-      loadMap.toSeq
-    }
-    EventHandler.info(this, loadSeq)
-    loadSeq
-  }
-
-  // call this method when Actor's preStart()
-  def startPolling
-  = {
-    pollingActor.start
-    akka.actor.Scheduler.schedule(pollingActor, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
-  }
-
-  //途中で集める時は一個ずつ集めるのをatomicに
-  private def updateLoads
-  = actors.foreach {
-    a => atomic {
-      (a ? RequestLoad).as[ReportLoad] match {
-        case Some(ReportLoad(load)) => loadMap +=(a, load)
-        case None => {
-          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
-        }
-      }
-    }
-  }
-
-  //最初だけは全部集め終わるのをatomicに
-  private def updateLoadsFirst
-  = atomic {
-    actors.foreach {
-      a => (a ? RequestLoad).as[ReportLoad] match {
-        case Some(ReportLoad(load)) => loadMap +=(a, load)
-        case None => {
-          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
-        }
-      }
-    }
-  }
-
+  // just returned the loads collected.
+  override def collectLoads = _ => loadSeq
 }
 
-trait OnDemandCollector extends Collector {
-  private[this] val loads = TransactionalMap[ActorRef, Load]()
-
+trait OnDemandCollector extends MapStorageCollector {
   override def collectLoads = _ => {
-    if (loads.isEmpty) {
+    if (!initialized.get()) {
       updateLoadsFirst
       atomic {
-        loads.toSeq
+        initialized.set(true)
       }
+      loadSeq
     } else {
       updateLoads
-      atomic {
-        loads.toSeq
-      }
+      loadSeq
     }
   }
-
-  //途中で集める時は一個ずつ集めるのをatomicに
-  private def updateLoads
-  = actors.foreach {
-    a => atomic {
-      (a ? RequestLoad).as[ReportLoad] match {
-        case Some(ReportLoad(load)) => loads +=(a, load)
-        case None => {
-          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
-        }
-      }
-    }
-  }
-
-  //最初だけは全部集め終わるのをatomicに
-  private def updateLoadsFirst
-  = atomic {
-    actors.foreach {
-      a => (a ? RequestLoad).as[ReportLoad] match {
-        case Some(ReportLoad(load)) => loads +=(a, load)
-        case None => {
-          EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
-        }
-      }
-    }
-  }
-
 }

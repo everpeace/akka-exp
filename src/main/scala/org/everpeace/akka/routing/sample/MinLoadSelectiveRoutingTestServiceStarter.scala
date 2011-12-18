@@ -5,6 +5,7 @@ import akka.actor.Actor._
 import org.everpeace.akka.routing._
 import akka.event.EventHandler
 import akka.routing.{CyclicIterator, InfiniteIterator}
+import sun.awt.windows.ThemeReader
 
 /**
  *
@@ -22,11 +23,12 @@ object MinLoadSelectiveRoutingTestServiceStarter {
 
 // test 用のリモートサービス MinLoadSelectiveRouterを作ってリモートサービスに登録する
 class MinLoadSelectiveRoutingService extends Actor {
-  private val a = SampleActor("a", 3, 2, 1).start()
-  private val b = SampleActor("b", 4, 3, 2, 1).start()
-  private val c = SampleActor("c", 5, 4, 3, 2, 1).start()
+  private val actors = Seq.tabulate(3) {
+    n => RandomLoadActor("actor-" + ((n + 1) toString), 0, 100) start
+  }
+
   private val selectiveRouter
-  = minLoadSelectiveRouter(a :: b :: c :: Nil).start()
+  = minLoadSelectiveRouter(actors).start()
 
   protected def receive = {
     case x => selectiveRouter forward x
@@ -46,31 +48,55 @@ trait LoadSequenceReporter extends LoadReporter {
 
   protected def reportLoad = {
     val load = loadSeq.next()
-    EventHandler.info(this, "[name=%s uuid=%s] report Load %f" format(name, self.uuid, load))
+    EventHandler.info(this, "[name=%s uuid=%s] report Load=%f" format(name, self.uuid, load))
+    load
+  }
+}
+
+trait RandomLoadReporter extends LoadReporter {
+  this: Actor =>
+  val minLoad: Int
+  val maxLoad: Int
+  val name: String
+
+  protected def reportLoad = {
+    val load = (minLoad + scala.util.Random.nextInt(maxLoad - minLoad)).toFloat
+    EventHandler.info(this, "%s report Load=%f" format(name, load))
+    Thread.sleep(1000)
     load
   }
 }
 
 // sample用のサービスActorのActorRef用のextractor
-object SampleActor {
-  def apply(name: String, loads: Load*) = Actor.actorOf(new SampleActor(name, new CyclicIterator[Load](loads.toList)))
+object LoadSeqActor {
+  def apply(name: String, loads: Load*) = Actor.actorOf(new LoadSeqActor(name, new CyclicIterator[Load](loads.toList)))
 }
 
 // sample用アクターサービス
-class SampleActor(val name: String, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
+class LoadSeqActor(val name: String, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
   def receive = requestLoad orElse forward
 
   def forward: Receive = {
-    case x => EventHandler.info(this, "[name=%s uuid=%s] called" format(name, self.uuid))
+    case x => {
+      val retString = "%s called" format (name)
+      EventHandler.info(this, retString)
+      self.reply(retString)
+    }
   }
 }
 
-// クライアント
-// Serviceを立ち上げた状態でこれをconsoleからnewしてcallすると動きが確認出来る
-class SampleClient {
-  val server = Actor.remote.actorFor("routing:service", "localhost", 2552).start()
+object RandomLoadActor {
+  def apply(name: String, min: Int, max: Int) = Actor.actorOf(new RandomLoadActor(name, min, max))
+}
 
-  def call = server ! 1
+class RandomLoadActor(val name: String, val minLoad: Int, val maxLoad: Int) extends Actor with RandomLoadReporter {
+  def receive = requestLoad orElse forward
 
-  def stop = server stop
+  def forward: Receive = {
+    case x => {
+      val retString = "%s called" format (name)
+      EventHandler.info(this, retString)
+      self.reply(retString)
+    }
+  }
 }

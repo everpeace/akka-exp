@@ -21,14 +21,10 @@ package object routing {
   // MinLoadSelectiveRouterのコンストラクタユーティリティ
   def minLoadSelectiveRouter(as: Seq[ActorRef]): ActorRef
   = Actor.actorOf(new Actor with SelectiveRouter with MinLoadSelector with PollingCollector {
-    val initialDelay = 3L
-    val betweenPollingDelay = 3L
-    val delayTimeUnit = TimeUnit.SECONDS
-    val actors = as
-
-    override def preStart() = {
-      startPolling
-    }
+    lazy val initialDelay = 1L
+    lazy val betweenPollingDelay = 3L
+    lazy val delayTimeUnit = TimeUnit.SECONDS
+    lazy val actors = as
   })
 
 }
