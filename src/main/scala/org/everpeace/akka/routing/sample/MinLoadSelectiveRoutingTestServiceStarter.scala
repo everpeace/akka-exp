@@ -7,6 +7,8 @@ import akka.event.EventHandler
 import akka.routing.{CyclicIterator, InfiniteIterator}
 import akka.util.duration._
 import akka.util.Duration
+import java.util.concurrent.TimeUnit
+import scala.util.Random._
 
 /**
  *
@@ -25,15 +27,17 @@ object MinLoadSelectiveRoutingTestServiceStarter {
 // test 用のリモートサービス MinLoadSelectiveRouterを作ってリモートサービスに登録する
 class MinLoadSelectiveRoutingService extends Actor {
   // 30個のアクターへ振り分けるシナリオを想定。
-  // 各アクターの負荷は0~100で毎回ランダムに返答される
-  // 各アクターの負荷返答にかかる時間は0~0.5[s]のランダムな時間を想定する
+  // 各アクターの負荷は0~20で毎回ランダムに返答される
+  // 各アクターの負荷返答にかかる時間はN(1000[ms],400[ms])な時間を想定する
   private val actors = Seq.tabulate(30) {
-    n => RandomLoadActor("actor-" + ((n + 1) toString), 0, 100, 0.5 second).start()
+    n => RandomLoadActor("actor-" + ((n + 1) toString), 0, 20, 1000, 100, TimeUnit.MILLISECONDS).start()
   }
 
-  // 各アクターへのpolling間隔 1[s], 収集timeout 0.45[s](時々タイムアウトするはず)
+  // 各アクターへの
+  // polling間隔 1.5[s]
+  // 収集timeout 1.2[s] (タイムアウト確率約3% (P(X in μ+_2σ)~95.4%))
   private val selectiveRouter
-  = minLoadSelectiveRouter(0.5 second, 1 second, 0.45 second, actors).start()
+  = minLoadSelectiveRouter(50 millis, (1000 + 5 * 100) millis, (1000 + 2 * 100) millis, actors).start()
 
   protected def receive = {
     case x => selectiveRouter forward x
@@ -61,19 +65,27 @@ trait LoadSequenceReporter extends LoadReporter {
   }
 }
 
-trait RandomLoadReporter extends LoadReporter {
+trait RandomLoadReporter extends AverageLoadReporter {
   this: Actor =>
   val minLoad: Int
   val maxLoad: Int
   val name: String
-  val responseTime: Duration
+  val responseTimeAverage: Long
+  val responseTimeStdDev: Long
+  val responseTimeUnit: TimeUnit
 
   protected def reportLoad = {
     val load = (minLoad + scala.util.Random.nextInt(maxLoad - minLoad)).toFloat
-    //負荷返答に0~responseTime[ms]までのランダムな時間かかる想定
-    Thread.sleep(scala.util.Random.nextLong().abs % responseTime.toMillis)
-    //EventHandler.info(this, "[%s(uuid=%s)] report Load=%f" format(name, self.uuid, load))
+    sleep
+    EventHandler.info(this, "[%s(uuid=%s)] report Load=%f" format(name, self.uuid, load))
     load
+  }
+
+  //N(ave,stdDev^2)従う乱数[timeunit]スリープする
+  private def sleep = {
+    val rand = (responseTimeStdDev * nextGaussian() + responseTimeAverage) toInt
+    val duration = Duration(rand, responseTimeUnit)
+    if (rand > 0) Thread.sleep(duration.toMillis)
   }
 }
 
@@ -97,10 +109,13 @@ class LoadSeqActor(val name: String, val responseTime: Duration, val loadSeq: In
 }
 
 object RandomLoadActor {
-  def apply(name: String, min: Int, max: Int, responseTime: Duration) = Actor.actorOf(new RandomLoadActor(name, min, max, responseTime))
+  def apply(name: String, min: Int, max: Int, responseTimeAverage: Long, responseTimeVar: Long, responseTimeUnit: TimeUnit)
+  = Actor.actorOf(new RandomLoadActor(name, min, max, responseTimeAverage, responseTimeVar, responseTimeUnit))
 }
 
-class RandomLoadActor(val name: String, val minLoad: Int, val maxLoad: Int, val responseTime: Duration) extends Actor with RandomLoadReporter {
+class RandomLoadActor(val name: String, val minLoad: Int, val maxLoad: Int, val responseTimeAverage: Long, val responseTimeStdDev: Long, val responseTimeUnit: TimeUnit) extends Actor with RandomLoadReporter {
+  protected lazy val historyLength = 3
+
   def receive = requestLoad orElse forward
 
   def forward: Receive = {

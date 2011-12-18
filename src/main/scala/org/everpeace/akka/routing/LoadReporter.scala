@@ -1,6 +1,9 @@
 package org.everpeace.akka.routing
 
 import akka.actor.Actor
+import collection.immutable.Queue
+import akka.stm.Ref
+import akka.stm.atomic
 
 /**
  *
@@ -11,8 +14,9 @@ import akka.actor.Actor
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case msg @ RequestLoad => self.reply(ReportLoad(convert(reportLoad)))
+    case msg@RequestLoad => self.reply(ReportLoad(convert(reportLoad)))
   }
+
   // strategy for what value is reported
   protected def convert(reported: Load): Load = reported
 
@@ -21,10 +25,25 @@ trait LoadReporter {
   protected def reportLoad: Load
 }
 
-// k 回分のloadの平均値をloadとして返すようなLoadReporter
-trait ThroughputAverageAsLoadReporter extends LoadReporter {
+// historyLengthのloadの平均値をloadとして返すようなLoadReporter
+trait AverageLoadReporter extends LoadReporter {
   this: Actor =>
-  val range: Int
-  // TODO implement this!
-  protected def convert = reportLoad
+  protected val historyLength: Int
+  assert(historyLength > 0, "hisoryLength must be positive integer.")
+  val history: Ref[Queue[Load]] = Ref[Queue[Load]](Queue.empty)
+
+  override protected def convert(reported: Load) = {
+    atomic {
+      if (history.get.length < historyLength) {
+        history.alter(_.enqueue(reported))
+        val historySeq = history().toSeq
+        historySeq.reduce(_ + _) / historySeq.length
+      } else {
+        history.alter(q => q.dequeue._2)
+        history.alter(_.enqueue(reported))
+        val historySeq = history().toSeq
+        historySeq.reduce(_ + _) / historySeq.length
+      }
+    }
+  }
 }

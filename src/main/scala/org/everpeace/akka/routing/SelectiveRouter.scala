@@ -28,8 +28,10 @@ trait SelectiveRouter extends Dispatcher {
   protected def routes = {
     case x => select(x) match {
       case Some(ref) => ref
-      // selectが何らかの理由でNoneを返した場合はランダムに選ぶ
       case None => {
+        // selectが何らかの理由でNoneを返した場合はランダムに選ぶ
+        // これが起きるのは過負荷状態（ルート先が全部非常に重くなっている)ので、
+        // たぶん投げても帰ってこないが一応ルーターとしてどこかに投げておく。
         EventHandler.info(this, "minimum load actor cannot be selected.")
         EventHandler.info(this, "message [" + x.toString + "] will be routed random target.")
         actors(scala.util.Random.nextInt(actors.length))
@@ -53,21 +55,52 @@ trait Selector {
   protected def collect: Any => Seq[(ActorRef, Load)]
 }
 
+//上位N個の中からランダムに選ぶ
+trait RandomTopNSelector extends Selector {
+  val N: Int
+  assert(N > 0, "N must be positive")
+
+  implicit val ord = new Ordering[(ActorRef, Load)] {
+    def compare(x: (ActorRef, Load), y: (ActorRef, Load)) = if (x._2 != y._2) {
+      (x._2 - y._2) toInt
+    } else {
+      -1 + scala.util.Random.nextInt(3)
+    }
+  }
+
+  override def select = msg => selectRandomTopN(collect(msg))
+
+  private def selectRandomTopN(loads: Seq[(ActorRef, Load)]): Option[ActorRef]
+  = if (N < loads.length) {
+    val topN = (loads.sorted.take(N))
+    EventHandler.info(this, "select randomly in top " + N + " actors:" + topN)
+    Some(topN(scala.util.Random.nextInt(N))._1)
+  } else if (0 < loads.length) {
+    Some(loads(scala.util.Random.nextInt(loads.length))._1)
+  } else {
+    None
+  }
+}
+
 // 集めてきたloadの集合からminimumをもつActorを選択するSelector
 trait MinLoadSelector extends Selector {
+  implicit val ord = new Ordering[(ActorRef, Load)] {
+    def compare(x: (ActorRef, Load), y: (ActorRef, Load)) = if (x._2 != y._2) {
+      (x._2 - y._2) toInt
+    } else {
+      -1 + scala.util.Random.nextInt(3)
+    }
+  }
+
   override def select = msg => minLoadActor(collect(msg))
 
   private def minLoadActor(loads: Seq[(ActorRef, Load)]): Option[ActorRef]
   = if (!loads.isEmpty) {
-    val target = loads.reduce[(ActorRef, Float)] {
-      (min, candidate) =>
-        if (min._2 > candidate._2) candidate
-        else min
-    }
-    Option(target._1)
+    Option(loads.min._1)
   } else {
     None
   }
+
 
 }
 
