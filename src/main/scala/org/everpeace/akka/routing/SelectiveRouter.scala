@@ -4,11 +4,8 @@ import akka.routing.Dispatcher
 import akka.actor.ForwardableChannel._
 import akka.actor.UntypedChannel._
 import akka.actor.{Scheduler, ActorRef, Actor}
-import akka.transactor.{Coordinated, Transactor}
-import akka.util.duration._
-import akka.stm.{Ref, TransactionFactory, TransactionalMap, atomic}
-import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
-import scala.collection.JavaConversions._
+import akka.stm.{Ref, atomic}
+import java.util.concurrent.TimeUnit
 import akka.util.Duration
 import akka.event.EventHandler
 

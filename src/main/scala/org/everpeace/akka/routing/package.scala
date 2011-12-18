@@ -3,7 +3,6 @@ package org.everpeace.akka
 import akka.actor.{Actor, ActorRef}
 import scala.collection.JavaConversions._
 import java.util.concurrent.TimeUnit
-import akka.util.duration._
 import akka.util.Duration
 
 /**
