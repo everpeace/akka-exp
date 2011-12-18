@@ -14,10 +14,11 @@ object MinLoadSelectiveRoutingTestClientStarter {
   def main(args: Array[String]) = run
 
   def run: Unit = {
+    // 300個のクライアントをそれぞれ、500ms後に起動して500ms~1500s以下のランダムな間隔でRoutingServiceにメッセージを投げる
     Seq.tabulate(300) {
       n =>
         val client = new SampleClient("client-" + ((n + 1) toString))
-        akka.actor.Scheduler.schedule(() => client call, 0, scala.util.Random.nextInt(500), TimeUnit.MILLISECONDS)
+        akka.actor.Scheduler.schedule(() => client call, 500, 1000+(scala.util.Random.nextInt(1000)-500), TimeUnit.MILLISECONDS)
     }
   }
 }
@@ -32,13 +33,11 @@ case class SampleClient(name: String) {
     val start = System.currentTimeMillis()
     (server ? 1).as[String] match {
       case Some(message) => {
-        EventHandler.info(this, "[" + name + "] [response:" + message + "] (Turn Arround Time = " + (System.currentTimeMillis() - start) + "[msec]) ")
+        EventHandler.info(this, "[" + name + "] [response:" + message + "] (Turn Arround Time = " + (System.currentTimeMillis() - start) + "[msec])")
       }
-      case None => EventHandler.info(this, "no response.")
+      case None => {
+        EventHandler.info(this, "[" + name + "] no response. (Turn Arround Time = " + (System.currentTimeMillis() - start) + "[msec])")
+      }
     }
   }
-
-
-  def stop = server stop
-
 }

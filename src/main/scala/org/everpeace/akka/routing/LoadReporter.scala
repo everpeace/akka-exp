@@ -11,7 +11,7 @@ import akka.actor.Actor
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case msg @ RequestLoad => this.self.reply(ReportLoad(convert(reportLoad)))
+    case msg @ RequestLoad => self.reply(ReportLoad(convert(reportLoad)))
   }
   // strategy for what value is reported
   protected def convert(reported: Load): Load = reported

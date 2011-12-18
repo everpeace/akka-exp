@@ -3,13 +3,14 @@ package org.everpeace.akka.routing
 import akka.routing.Dispatcher
 import akka.actor.ForwardableChannel._
 import akka.actor.UntypedChannel._
-import akka.event.EventHandler
 import akka.actor.{Scheduler, ActorRef, Actor}
 import akka.transactor.{Coordinated, Transactor}
 import akka.util.duration._
 import akka.stm.{Ref, TransactionFactory, TransactionalMap, atomic}
 import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 import scala.collection.JavaConversions._
+import akka.util.Duration
+import akka.event.EventHandler
 
 /**
  *
@@ -52,12 +53,12 @@ trait Selector {
   //standard collection strategy is implemented by Collector
   // Note: this has an argument of Any type
   // so that message dependent selection can be implemented.
-  protected def collectLoads: Any => Seq[(ActorRef, Load)]
+  protected def collect: Any => Seq[(ActorRef, Load)]
 }
 
 // 集めてきたloadの集合からminimumをもつActorを選択するSelector
 trait MinLoadSelector extends Selector {
-  override def select = msg => minLoadActor(collectLoads(msg))
+  override def select = msg => minLoadActor(collect(msg))
 
   private def minLoadActor(loads: Seq[(ActorRef, Load)]): Option[ActorRef]
   = if (!loads.isEmpty) {
@@ -78,102 +79,64 @@ trait Collector {
   // load collection targets
   protected val actors: Seq[ActorRef]
 
-  //保持しているactor,loadの組を返す
+  // 保持しているactor,loadの組を返す
   // override it yourself!
-  def collectLoads: Any => Seq[(ActorRef, Load)]
+  def collect: Any => Seq[(ActorRef, Load)]
 }
 
 trait MapStorageCollector extends Collector {
-  protected val loadMap = new ConcurrentHashMap[ActorRef, Ref[Float]]()
-  protected val initialized = Ref(false)
+  protected val loadRequestTimeout: Duration
+  protected var loadMap = Map[ActorRef, Ref[Float]]()
+
   atomic {
-    for (actor <- actors) loadMap.put(actor, Ref[Float]())
+    for (actor <- actors) loadMap += actor -> Ref[Float]
   }
 
-  //個々のloadをpollingしてupdateするtransactors
-  //トランザクションの境界はCoorinatedオブジェクトで外側から制御する。
-  private val updators = for (a <- actors) yield Actor.actorOf(
-    new Transactor {
-      def atomically = {
-        case msg@RequestLoad => (a ? RequestLoad).as[ReportLoad] match {
-          case Some(ReportLoad(load)) => loadMap.get(a).alter(_ => load)
-          case None => {
-            EventHandler.info(this, "actor[uuid=" + a.uuid + "] didn't answer its load.")
-          }
-        }
+  def storedLoads = loadMap.toSeq.flatMap(entry => atomic {
+    entry._2.opt match {
+      case Some(load) => Seq((entry._1, load))
+      case None => Seq.empty
+    }
+  })
+
+  protected def updateLoads(actor: ActorRef)
+  = (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
+    case Some(ReportLoad(load)) => {
+      atomic {
+        loadMap(actor).swap(load)
       }
+      EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
     }
-  ).start()
-
-  def loadSeq = {
-    val _loadSeq: Seq[(ActorRef, Load)] =
-      loadMap.entrySet().toSeq.flatMap(entry => atomic {
-        entry.getValue.opt match {
-          case Some(load) => Seq((entry.getKey, load))
-          case None => Seq.empty
-        }
-      })
-    EventHandler.info(this, _loadSeq)
-    _loadSeq
-  }
-
-  //途中で集める時は一個ずつ集めるのをatomicに
-  protected def updateLoads
-  = updators foreach {
-    _ ! Coordinated(RequestLoad)
-  }
-
-  //最初だけは全部集め終わるのをatomicに
-  protected def updateLoadsFirst
-  = {
-    val coordinated = Coordinated()
-    updators foreach {
-      _ ! coordinated(RequestLoad)
+    case None => {
+      atomic {
+        loadMap(actor).swap(null.asInstanceOf[Float])
+      }
+      EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
     }
-    coordinated atomic {}
   }
 }
 
 trait PollingCollector extends MapStorageCollector {
   // these vals should be override as 'lazy val'
-  // because polling actor starts itself and polling here
-  // using these values.
+  // because polling starts below (in initial block) using these values.
   val initialDelay: Long
   val betweenPollingDelay: Long
   val delayTimeUnit: TimeUnit
 
-  // Actor which polls updators
-  protected val pollingActor = Actor.actorOf(new Actor {
-    protected def receive = {
-      case msg@RequestLoad
-      => if (!initialized.get()) {
-        updateLoadsFirst
-        atomic {
-          initialized.set(true)
-        }
-      } else {
-        updateLoads
-      }
-    }
-  })
-  pollingActor.start
-  Scheduler.schedule(pollingActor, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
+  // schedule polling to each actors
+  actors foreach {
+    actor => Scheduler.schedule(() => updateLoads(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
+  }
 
-  // just returned the loads collected.
-  override def collectLoads = _ => loadSeq
+  // just returned stored loads
+  override def collect = _ => storedLoads
 }
 
 trait OnDemandCollector extends MapStorageCollector {
-  override def collectLoads = _ => {
-    if (!initialized.get()) {
-      updateLoadsFirst
-      atomic {
-        initialized.set(true)
-      }
-      loadSeq
-    } else {
-      updateLoads
-      loadSeq
+  override def collect = _ => {
+    actors foreach {
+      a => updateLoads(a)
     }
+    storedLoads
   }
 }

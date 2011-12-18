@@ -3,6 +3,8 @@ package org.everpeace.akka
 import akka.actor.{Actor, ActorRef}
 import scala.collection.JavaConversions._
 import java.util.concurrent.TimeUnit
+import akka.util.duration._
+import akka.util.Duration
 
 /**
  *
@@ -14,16 +16,17 @@ package object routing {
   type Load = Float
 
   // MinLoadSelectiveRouterのコンストラクタユーティリティ
-  def minLoadSelectiveRouter(as: java.util.List[ActorRef]): ActorRef =
-    minLoadSelectiveRouter(as toList)
+  def minLoadSelectiveRouter(initDelay: Duration, pollingDelay: Duration, loadRequestTimeout: Duration, as: java.util.List[ActorRef]): ActorRef =
+    minLoadSelectiveRouter(initDelay, pollingDelay, loadRequestTimeout, as toList)
 
 
   // MinLoadSelectiveRouterのコンストラクタユーティリティ
-  def minLoadSelectiveRouter(as: Seq[ActorRef]): ActorRef
+  def minLoadSelectiveRouter(initDelay: Duration, pollingDelay: Duration, _loadRequestTimeout: Duration, as: Seq[ActorRef]): ActorRef
   = Actor.actorOf(new Actor with SelectiveRouter with MinLoadSelector with PollingCollector {
-    lazy val initialDelay = 1L
-    lazy val betweenPollingDelay = 3L
-    lazy val delayTimeUnit = TimeUnit.SECONDS
+    lazy val initialDelay = initDelay.toMillis
+    lazy val betweenPollingDelay = pollingDelay.toMillis
+    lazy val delayTimeUnit = TimeUnit.MILLISECONDS
+    lazy val loadRequestTimeout = _loadRequestTimeout
     lazy val actors = as
   })
 
