@@ -29,7 +29,7 @@ class MinLoadSelectiveRoutingService extends Actor {
   // 30個のアクターへ振り分けるシナリオを想定。
   // 各アクターの負荷は0~20で毎回ランダムに返答される
   // 各アクターの負荷返答にかかる時間はN(1000[ms],400[ms])な時間を想定する
-  private val actors = Seq.tabulate(30) {
+  private val actors = Seq.tabulate(10) {
     n => RandomLoadActor("actor-" + ((n + 1) toString), 0, 20, 1000, 100, TimeUnit.MILLISECONDS).start()
   }
 
@@ -37,14 +37,14 @@ class MinLoadSelectiveRoutingService extends Actor {
   // polling間隔 1.5[s]
   // 収集timeout 1.2[s] (タイムアウト確率約3% (P(X in μ+_2σ)~95.4%))
   private val selectiveRouter
-  = minLoadSelectiveRouter(50 millis, (1000 + 5 * 100) millis, (1000 + 2 * 100) millis, actors).start()
+  = minLoadSelectiveRouter(50 millis, (1000 + 50 * 100) millis, (1000 + 20 * 100) millis, actors).start()
 
   protected def receive = {
     case x => selectiveRouter forward x
   }
 
   override def preStart() = {
-    remote.start("localhost", 2552)
+    remote.start("158.201.101.10", 2552)
     remote.register("routing:service", self)
   }
 }
@@ -83,7 +83,7 @@ trait RandomLoadReporter extends AverageLoadReporter {
 
   //N(ave,stdDev^2)従う乱数[timeunit]スリープする
   private def sleep = {
-    val rand = (responseTimeStdDev * nextGaussian() + responseTimeAverage) toInt
+    val rand = (responseTimeStdDev * nextGaussian() + responseTimeAverage).toInt
     val duration = Duration(rand, responseTimeUnit)
     if (rand > 0) Thread.sleep(duration.toMillis)
   }
@@ -122,7 +122,7 @@ class RandomLoadActor(val name: String, val minLoad: Int, val maxLoad: Int, val 
     case x => {
       val retString = "%s called" format (name)
       EventHandler.info(this, retString)
-      self.reply(retString)
+      self.reply((retString,name.replace("actor-","").toInt))
     }
   }
 }
