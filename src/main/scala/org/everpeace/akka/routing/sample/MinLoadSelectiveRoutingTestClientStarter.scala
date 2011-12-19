@@ -2,7 +2,7 @@ package org.everpeace.akka.routing.sample
 
 import akka.event.EventHandler
 import java.util.concurrent.{ScheduledFuture, TimeUnit}
-import akka.actor.{PoisonPill, Actor}
+import akka.actor.Actor
 
 
 /**
@@ -21,8 +21,8 @@ object MinLoadSelectiveRoutingTestClientStarter {
   def run: Unit = {
     val aggregateClient = Actor.actorOf(new Actor {
       var clientTasks: Seq[ScheduledFuture[AnyRef]] = Nil
-      var num = 3
-      var NUM = 100
+      var num = 30
+      var NUM = 50
       var clients = Seq.tabulate(num)(n => new SampleClient("client-" + ((n + 1) toString)))
 
       protected def receive = {
@@ -63,6 +63,9 @@ object MinLoadSelectiveRoutingTestClientStarter {
               format(name, numRes + numNoRes, resAve, resMax, resMin, numRes, noresAve, noresMax, noresMin, numNoRes))
             c.server.stop
           }
+
+          val serverIdRanking = clients.foldLeft(Nil:Seq[Int])((seq: Seq[Int], client) => client.calledServerIds ++ seq).map(x => (x, x)).groupBy(_._1).toList.sortWith(_._2.size > _._2.size).map(a =>(a._1 ,a._2.size))
+          EventHandler.info(this,"called serverId Ranking:"+serverIdRanking)
           EventHandler.info(this, "all clients succesfully stopped.")
           System.exit(0)
       }
@@ -76,17 +79,19 @@ object MinLoadSelectiveRoutingTestClientStarter {
 // クライアント
 // Serviceを立ち上げた状態でこれをconsoleからnewしてcallすると動きが確認出来る
 case class SampleClient(name: String) {
-  val server = Actor.remote.actorFor("routing:service", "localhost", 2552).start()
+  val server = Actor.remote.actorFor("routing:service", "158.201.101.10", 2552).start()
   var resTimes: Seq[Long] = Nil
   var noResTimes: Seq[Long] = Nil
+  var calledServerIds: Seq[Int] = Nil
 
   def call = {
     val start = System.currentTimeMillis()
-    (server ? 1).as[String] match {
+    (server ? 1).as[(String, Int)] match {
       case Some(message) => {
         val time = (System.currentTimeMillis() - start)
         resTimes = time +: resTimes
-        EventHandler.info(this, "[" + name + "] [response:" + message + "] (Turn Arround Time = " + time + "[msec])")
+        calledServerIds = message._2+: calledServerIds
+        EventHandler.info(this, "[" + name + "] [response:" + message._1 + "] (Turn Arround Time = " + time + "[msec])")
       }
       case None => {
         val time = (System.currentTimeMillis() - start)
