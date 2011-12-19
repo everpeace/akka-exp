@@ -27,10 +27,9 @@ object MinLoadSelectiveRoutingTestServiceStarter {
 // test 用のリモートサービス MinLoadSelectiveRouterを作ってリモートサービスに登録する
 class MinLoadSelectiveRoutingService extends Actor {
   // 30個のアクターへ振り分けるシナリオを想定。
-  // 各アクターの負荷は0~20で毎回ランダムに返答される
-  // 各アクターの負荷返答にかかる時間はN(1000[ms],400[ms])な時間を想定する
+  // 各アクターの負荷返答にかかる時間はN(1000[ms],100[ms])な時間を想定する
   private val actors = Seq.tabulate(10) {
-    n => RandomLoadActor("actor-" + ((n + 1) toString), 0, 20, 1000, 100, TimeUnit.MILLISECONDS).start()
+    n => RandomLoadActor("actor-" + ((n + 1) toString), 1000, 100, TimeUnit.MILLISECONDS).start()
   }
 
   // 各アクターへの
@@ -67,15 +66,13 @@ trait LoadSequenceReporter extends LoadReporter {
 
 trait RandomLoadReporter extends AverageLoadReporter {
   this: Actor =>
-  val minLoad: Int
-  val maxLoad: Int
   val name: String
   val responseTimeAverage: Long
   val responseTimeStdDev: Long
   val responseTimeUnit: TimeUnit
 
   protected def reportLoad = {
-    val load = (minLoad + scala.util.Random.nextInt(maxLoad - minLoad)).toFloat
+    val load = (responseTimeStdDev * nextGaussian() + responseTimeAverage).toInt.toFloat
     sleep
     EventHandler.info(this, "[%s(uuid=%s)] report Load=%f" format(name, self.uuid, load))
     load
@@ -109,11 +106,11 @@ class LoadSeqActor(val name: String, val responseTime: Duration, val loadSeq: In
 }
 
 object RandomLoadActor {
-  def apply(name: String, min: Int, max: Int, responseTimeAverage: Long, responseTimeVar: Long, responseTimeUnit: TimeUnit)
-  = Actor.actorOf(new RandomLoadActor(name, min, max, responseTimeAverage, responseTimeVar, responseTimeUnit))
+  def apply(name: String,  responseTimeAverage: Long, responseTimeVar: Long, responseTimeUnit: TimeUnit)
+  = Actor.actorOf(new RandomLoadActor(name,  responseTimeAverage, responseTimeVar, responseTimeUnit))
 }
 
-class RandomLoadActor(val name: String, val minLoad: Int, val maxLoad: Int, val responseTimeAverage: Long, val responseTimeStdDev: Long, val responseTimeUnit: TimeUnit) extends Actor with RandomLoadReporter {
+class RandomLoadActor(val name: String, val responseTimeAverage: Long, val responseTimeStdDev: Long, val responseTimeUnit: TimeUnit) extends Actor with RandomLoadReporter {
   protected lazy val historyLength = 3
 
   def receive = requestLoad orElse forward
