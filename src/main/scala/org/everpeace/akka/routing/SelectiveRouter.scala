@@ -83,25 +83,8 @@ trait RandomTopNSelector extends Selector {
 }
 
 // 集めてきたloadの集合からminimumをもつActorを選択するSelector
-trait MinLoadSelector extends Selector {
-  implicit val ord = new Ordering[(ActorRef, Load)] {
-    def compare(x: (ActorRef, Load), y: (ActorRef, Load)) = if (x._2 != y._2) {
-      (x._2 - y._2) toInt
-    } else {
-      -1 + scala.util.Random.nextInt(3)
-    }
-  }
-
-  override def select = msg => minLoadActor(collect(msg))
-
-  private def minLoadActor(loads: Seq[(ActorRef, Load)]): Option[ActorRef]
-  = if (!loads.isEmpty) {
-    Option(loads.min._1)
-  } else {
-    None
-  }
-
-
+trait MinLoadSelector extends RandomTopNSelector {
+  lazy val N = 1
 }
 
 // Loadを集めるロジックを別に実装してmixinできるようにtrait化
@@ -115,13 +98,15 @@ trait Collector {
 }
 
 trait MapStorageCollector extends Collector {
+  // 各アクターに負荷を問い合わせるときのタイムアウト設定
   protected val loadRequestTimeout: Duration
+  // 各アクターの負荷を保持するマップとその初期化
   protected var loadMap = Map[ActorRef, Ref[Float]]()
-
   atomic {
     for (actor <- actors) loadMap += actor -> Ref[Float]
   }
 
+  //保持している負荷を返す
   def storedLoads = loadMap.toSeq.flatMap(entry => atomic {
     entry._2.opt match {
       case Some(load) => Seq((entry._1, load))
@@ -129,21 +114,43 @@ trait MapStorageCollector extends Collector {
     }
   })
 
-  protected def updateLoads(actor: ActorRef)
-  = (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
-    case Some(ReportLoad(load)) => {
-      atomic {
-        loadMap(actor).swap(load)
+  // 各アクターの負荷を更新するアクター
+  protected val updators: Seq[ActorRef] = for (actor <- actors) yield Actor.actorOf(
+    new Actor {
+      protected def receive = {
+        case RequestLoad =>
+          (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
+            case Some(ReportLoad(load)) => {
+              atomic {
+                loadMap(actor).swap(load)
+              }
+              EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
+            }
+            case None => {
+              atomic {
+                loadMap(actor).swap(null.asInstanceOf[Float])
+              }
+              EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
+            }
+          }
       }
-      EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
-    }
-    case None => {
-      atomic {
-        loadMap(actor).swap(null.asInstanceOf[Float])
-      }
-      EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
-    }
-  }
+    }).start
+
+  //  def updateLoad(actor: ActorRef) = (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
+  //    case Some(ReportLoad(load)) => {
+  //      atomic {
+  //        loadMap(actor).swap(load)
+  //      }
+  //      EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
+  //    }
+  //    case None => {
+  //      atomic {
+  //        loadMap(actor).swap(null.asInstanceOf[Float])
+  //      }
+  //      EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
+  //    }
+  //  }
+
 }
 
 trait PollingCollector extends MapStorageCollector {
@@ -154,8 +161,11 @@ trait PollingCollector extends MapStorageCollector {
   val delayTimeUnit: TimeUnit
 
   // schedule polling to each actors
-  actors foreach {
-    actor => Scheduler.schedule(() => updateLoads(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
+  //  actors foreach {
+  //    actor => Scheduler.schedule(() => updateLoad(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
+  //  }
+  updators foreach {
+    updator => Scheduler.schedule(updator, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
   }
 
   // just returned stored loads
@@ -164,9 +174,7 @@ trait PollingCollector extends MapStorageCollector {
 
 trait OnDemandCollector extends MapStorageCollector {
   override def collect = _ => {
-    actors foreach {
-      a => updateLoads(a)
-    }
+    updators foreach (_ ! ReportLoad)
     storedLoads
   }
 }
