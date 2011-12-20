@@ -29,9 +29,9 @@ object MinLoadSelectiveRoutingTestServiceStarter {
 class MinLoadSelectiveRoutingService extends Actor {
   // numServers個のアクターへ振り分けるシナリオを想定。
   // マシンによってあまり増やしすぎるとスレッド数が多くなってパフォーマンス激減する
-  val numServers = 5
-  val loadMyu = 500 millis // 負荷の平均
-  val loadSigma = 100 millis //負荷の標準偏差
+  val numServers = 4
+  val loadMyu = 200 millis // 負荷の平均
+  val loadSigma = 200 millis //負荷の標準偏差
 
   // サーバー群の作成
   // 各アクターの負荷返答にかかる時間はN(1000[ms],100[ms])な時間を想定する
@@ -47,7 +47,7 @@ class MinLoadSelectiveRoutingService extends Actor {
 
   // ポート2552, サービス名routing:serviceで作成
   override def preStart() = {
-    remote.start("158.201.101.10", 2552)
+    remote.start("localhost", 2552)
     remote.register("routing:service", self)
   }
 
@@ -56,19 +56,26 @@ class MinLoadSelectiveRoutingService extends Actor {
   }
 }
 
-class MinLoadSelectiveRoutingServiceInspector {
-  val server = Actor.remote.actorFor("routing:service", "158.201.101.10", 2552).start()
+object MinLoadSelectiveRoutingServiceInspector {
 
-  def printStatus = {
+  def main(args: Array[String]): Unit = {
+    val server = Actor.remote.actorFor("routing:service", "localhost", 2552).start()
     import org.everpeace.akka.routing.RequestStoredLoad
     import org.everpeace.akka.routing.StoredLoad
-    (server ? RequestStoredLoad).as[StoredLoad] match {
-      case Some(msg) =>
-        msg.loads.foreach(load =>EventHandler.info(this, load + "\n"))
-      case None =>
-        EventHandler.info(this, None)
+
+    akka.actor.Scheduler.schedule(() => printStatus, 2000, 5000, TimeUnit.MILLISECONDS)
+    def printStatus = {
+      (server ? RequestStoredLoad).as[StoredLoad] match {
+        case Some(msg) =>
+          EventHandler.info(this, "=====")
+          msg.loads.foreach(load => EventHandler.info(this, load))
+          EventHandler.info(this, "=====")
+        case None =>
+          EventHandler.info(this, None)
+      }
     }
   }
+
 }
 
 //テスト用：負荷数値列を与えてそれを順番に返すReporter
@@ -117,7 +124,7 @@ trait RandomLoadReporter extends AverageLoadReporter {
   val responseTimeStdDev: Duration
 
   protected def reportPresentLoad = {
-    val load = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toFloat
+    val load = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toFloat.abs
     sleep
     EventHandler.info(this, "[%s(uuid=%s)] report Load=%f" format(name, self.uuid, load))
     Some(load)
@@ -125,7 +132,7 @@ trait RandomLoadReporter extends AverageLoadReporter {
 
   //N(ave,stdDev^2)従う乱数[timeunit]スリープする
   protected def sleep = {
-    val rand = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toLong
+    val rand = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toLong.abs
     if (rand > 0) Thread.sleep(rand)
   }
 }

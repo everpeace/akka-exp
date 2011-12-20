@@ -1,9 +1,10 @@
 package org.everpeace.akka.routing.sample
 
 import akka.event.EventHandler
-import java.util.concurrent.TimeUnit
 import akka.actor.Actor
 import akka.util.duration._
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.{Executors, ThreadFactory, TimeUnit}
 
 /**
  *
@@ -16,20 +17,22 @@ object MinLoadSelectiveRoutingTestClientStarter {
 
   def run: Unit = {
     // numClientsクライアントが各numCalls回ロードバランサをコールする
-    val numClients = 5
-    val numCalls = 10
+    val numClients = 4
+    val numCalls = 100
     // コールする間隔を返す関数を用意してやる
     def initialDelay = scala.util.Random.nextInt(100) millis
-    def betweenDelay = 1000 millis
+    def betweenDelay = 1 millis
 
-    val clients = Seq.tabulate(numClients)(n => new SampleClient("client-" + (n + 1) ))
+    val clients = Seq.tabulate(numClients)(n => new SampleClient("client-" + (n + 1)))
+    val executors = clients map (_ => Executors.newSingleThreadScheduledExecutor(SchedulerThreadFactory))
+
     // clientを順次起動
-    val clientTasks = for (client <- clients) yield akka.actor.Scheduler.schedule(new Runnable {
+    val clientTasks = for (tup <- clients.zip(executors)) yield tup._2.scheduleAtFixedRate(new Runnable {
       var count: Int = 1
 
       def run = if (count <= numCalls) {
-        EventHandler.info(this, client.name + "'s " + count + "th call.")
-        client.call
+        EventHandler.info(this, tup._1.name + "'s " + count + "th call.")
+        tup._1.call
         count = count + 1
       } else {
         throw new java.lang.Error
@@ -71,7 +74,7 @@ object MinLoadSelectiveRoutingTestClientStarter {
 // クライアント
 // Serviceを立ち上げた状態でこれをconsoleからnewしてcallすると動きが確認出来る
 case class SampleClient(name: String) {
-  val server = Actor.remote.actorFor("routing:service", "158.201.101.10", 2552).start()
+  val server = Actor.remote.actorFor("routing:service", "localhost", 2552).start()
   var resTimes: Seq[Long] = Nil
   var noResTimes: Seq[Long] = Nil
   var calledServerIds: Seq[Int] = Nil
@@ -91,5 +94,17 @@ case class SampleClient(name: String) {
         EventHandler.info(this, "[" + name + "] no response. (Turn Arround Time = " + time + "[msec])")
       }
     }
+  }
+}
+
+object SchedulerThreadFactory extends ThreadFactory {
+  private val count = new AtomicLong(0)
+  val threadFactory = Executors.defaultThreadFactory()
+
+  def newThread(r: Runnable): Thread = {
+    val thread = threadFactory.newThread(r)
+    thread.setName("sampleClient-scheduler-" + count.incrementAndGet())
+    thread.setDaemon(true)
+    thread
   }
 }
