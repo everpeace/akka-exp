@@ -30,17 +30,20 @@ class MinLoadSelectiveRoutingService extends Actor {
   // numServers個のアクターへ振り分けるシナリオを想定。
   // マシンによってあまり増やしすぎるとスレッド数が多くなってパフォーマンス激減する
   val numServers = 5
+  val loadMyu = 500 millis // 負荷の平均
+  val loadSigma = 100 millis //負荷の標準偏差
 
   // サーバー群の作成
   // 各アクターの負荷返答にかかる時間はN(1000[ms],100[ms])な時間を想定する
   private val actors
-  = Seq.tabulate(numServers)(n => RandomLoadActor("actor-" + (n + 1), 1000, 100, TimeUnit.MILLISECONDS).start())
+  = Seq.tabulate(numServers)(n => RandomLoadActor("actor-" + (n + 1), loadMyu, loadSigma).start())
 
   // ロードバランサーの作成
-  // 各アクターへのpolling間隔 = 1.5[s]
-  // 収集するときのtimeout      = 1.2[s] (タイムアウト確率約3% (P(X in μ+_2σ)~95.4%))
+  // 各アクターへのpolling間隔 = μ+10σ[s]
+  // 収集するときのtimeout      = μ+2σ[s] (タイムアウト確率約3% (P(X in μ+_2σ)~95.4%))
+  // 負荷収集時にタイムアウトが起きるとそのアクターへはメッセージをルートしないようになる
   private val selectiveRouter
-  = minLoadSelectiveRouter(50 millis, (1000 + 50 * 100) millis, (1000 + 20 * 100) millis, actors).start()
+  = minLoadSelectiveRouter(50 millis, (loadMyu + 10 * loadSigma), (loadMyu + 2 * loadSigma), actors).start()
 
   // ポート2552, サービス名routing:serviceで作成
   override def preStart() = {
@@ -95,12 +98,11 @@ class LoadSequenceReportActor(val name: String, val responseTime: Duration, val 
 trait RandomLoadReporter extends AverageLoadReporter {
   this: Actor =>
   val name: String
-  val responseTimeAverage: Long
-  val responseTimeStdDev: Long
-  val responseTimeUnit: TimeUnit
+  val responseTimeAverage: Duration
+  val responseTimeStdDev: Duration
 
   protected def reportPresentLoad = {
-    val load = (responseTimeStdDev * nextGaussian() + responseTimeAverage).toInt.toFloat
+    val load = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toFloat
     sleep
     EventHandler.info(this, "[%s(uuid=%s)] report Load=%f" format(name, self.uuid, load))
     Some(load)
@@ -108,21 +110,20 @@ trait RandomLoadReporter extends AverageLoadReporter {
 
   //N(ave,stdDev^2)従う乱数[timeunit]スリープする
   protected def sleep = {
-    val rand = (responseTimeStdDev * nextGaussian() + responseTimeAverage).toInt
-    val duration = Duration(rand, responseTimeUnit)
-    if (rand > 0) Thread.sleep(duration.toMillis)
+    val rand = (responseTimeStdDev.toMillis * nextGaussian() + responseTimeAverage.toMillis).toLong
+    if (rand > 0) Thread.sleep(rand)
   }
 }
 
 // テスト用：RandomLoadActor用のextractor
 object RandomLoadActor {
-  def apply(name: String, responseTimeAverage: Long, responseTimeVar: Long, responseTimeUnit: TimeUnit)
-  = Actor.actorOf(new RandomLoadActor(name, responseTimeAverage, responseTimeVar, responseTimeUnit))
+  def apply(name: String, responseTimeAverage: Duration, responseTimeStdDev: Duration)
+  = Actor.actorOf(new RandomLoadActor(name, responseTimeAverage, responseTimeStdDev))
 }
 
 // テスト用：正規分布に従う乱数を負荷の履歴の平均を負荷として報告するアクター
 // 負荷リクエスト以外のメッセージが来た場合は、同じ正規分布に従う乱数の時間だけ待つ
-class RandomLoadActor(val name: String, val responseTimeAverage: Long, val responseTimeStdDev: Long, val responseTimeUnit: TimeUnit) extends Actor with RandomLoadReporter {
+class RandomLoadActor(val name: String, val responseTimeAverage: Duration, val responseTimeStdDev: Duration) extends Actor with RandomLoadReporter {
   protected lazy val historyLength = 3
 
   def receive = requestLoad orElse forward
