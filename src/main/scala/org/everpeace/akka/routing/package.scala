@@ -28,6 +28,8 @@ package object routing {
     lazy val loadRequestTimeout = _loadRequestTimeout
     lazy val N = 3
     lazy val actors = as
+
+    override def receive = reportStoredLoad orElse dispatch
   })
 
 }

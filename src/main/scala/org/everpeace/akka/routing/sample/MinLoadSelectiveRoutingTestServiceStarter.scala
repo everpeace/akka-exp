@@ -56,6 +56,21 @@ class MinLoadSelectiveRoutingService extends Actor {
   }
 }
 
+class MinLoadSelectiveRoutingServiceInspector {
+  val server = Actor.remote.actorFor("routing:service", "158.201.101.10", 2552).start()
+
+  def printStatus = {
+    import org.everpeace.akka.routing.RequestStoredLoad
+    import org.everpeace.akka.routing.StoredLoad
+    (server ? RequestStoredLoad).as[StoredLoad] match {
+      case Some(msg) =>
+        msg.loads.foreach(load =>EventHandler.info(this, load + "\n"))
+      case None =>
+        EventHandler.info(this, None)
+    }
+  }
+}
+
 //テスト用：負荷数値列を与えてそれを順番に返すReporter
 // 負荷返答にかかる時間はresponseTimeで指定してそれ未満のランダムな時間
 trait LoadSequenceReporter extends LoadReporter {

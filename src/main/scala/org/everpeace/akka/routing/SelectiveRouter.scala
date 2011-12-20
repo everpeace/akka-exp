@@ -8,6 +8,7 @@ import akka.stm.{Ref, atomic}
 import java.util.concurrent.TimeUnit
 import akka.util.Duration
 import akka.event.EventHandler
+import akka.actor.Actor._
 
 /**
  *
@@ -47,6 +48,7 @@ trait SelectiveRouter extends Dispatcher {
 
 // Selectロジックを別に実装してmixinできるようにtrait化
 trait Selector {
+  this: SelectiveRouter =>
   protected def select: Any => Option[ActorRef]
 
   //standard collection strategy is implemented by Collector
@@ -57,6 +59,7 @@ trait Selector {
 
 //上位N個の中からランダムに選ぶ
 trait RandomTopNSelector extends Selector {
+  this: SelectiveRouter =>
   val N: Int
   assert(N > 0, "N must be positive")
 
@@ -84,11 +87,13 @@ trait RandomTopNSelector extends Selector {
 
 // 集めてきたloadの集合からminimumをもつActorを選択するSelector
 trait MinLoadSelector extends RandomTopNSelector {
+  this: SelectiveRouter =>
   lazy val N = 1
 }
 
 // Loadを集めるロジックを別に実装してmixinできるようにtrait化
 trait Collector {
+  this: Actor with Selector =>
   // load collection targets
   protected val actors: Seq[ActorRef]
 
@@ -97,14 +102,23 @@ trait Collector {
   def collect: Any => Seq[(ActorRef, Load)]
 }
 
+case object RequestStoredLoad
+case class StoredLoad(loads: Seq[(akka.actor.Uuid, Option[Load])])
 trait MapStorageCollector extends Collector {
+  this: Actor with Selector =>
   // 各アクターに負荷を問い合わせるときのタイムアウト設定
   protected val loadRequestTimeout: Duration
   // 各アクターの負荷を保持するマップとその初期化
-  protected var loadMap = Map[ActorRef, Ref[Float]]()
+  protected var loadMap = Map[ActorRef, Ref[Load]]()
   atomic {
-    for (actor <- actors) loadMap += actor -> Ref[Float]
+    for (actor <- actors) loadMap += actor -> Ref[Load]
   }
+
+  // ストアされている負荷情報を聞くためのメソッド
+  protected def reportStoredLoad: Receive = {
+    case RequestStoredLoad => self.reply(StoredLoad(loadMap.map( tup => tup._1.uuid -> atomic {tup._2.opt}).toSeq))
+  }
+
 
   //保持している負荷を返す
   def storedLoads = loadMap.toSeq.flatMap(entry => atomic {
@@ -116,6 +130,7 @@ trait MapStorageCollector extends Collector {
 }
 
 trait PollingCollector extends MapStorageCollector {
+  this: Actor with Selector =>
   // these vals should be override as 'lazy val'
   // because polling starts below (in initial block) using these values.
   val initialDelay: Long
@@ -127,6 +142,7 @@ trait PollingCollector extends MapStorageCollector {
   actors foreach {
     actor => Scheduler.schedule(() => updateLoad(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
   }
+
   //  updators foreach {
   //    updator => Scheduler.schedule(updator, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
   //  }
@@ -152,6 +168,7 @@ trait PollingCollector extends MapStorageCollector {
 }
 
 trait OnDemandCollector extends MapStorageCollector {
+  this: Actor with Selector =>
   // 各アクターの負荷を更新するアクター
   protected val updators: Seq[ActorRef] = for (actor <- actors) yield Actor.actorOf(
     new Actor {

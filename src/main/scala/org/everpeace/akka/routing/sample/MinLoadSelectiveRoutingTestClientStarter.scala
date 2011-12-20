@@ -58,7 +58,7 @@ object MinLoadSelectiveRoutingTestClientStarter {
           "NoResTime(ave,stddev):(%2.3f[ms],%2.3f[ms])  (max=%d[ms], min=%d[ms], %d times)")
           format(name, numRes + numNoRes, resAve, resStdDev, resMax, resMin, numRes, noresAve, noresStdDev, noresMax, noresMin, numNoRes))
       }
-      val calledServerIds = clients.foldLeft(Seq.empty: Seq[Int])(_ ++ _.calledServerIds)
+      val calledServerIds = ((Seq.empty: Seq[Int]) /: clients)(_ ++ _.calledServerIds)
       val serverIdRanking = calledServerIds.map((_, 1)).groupBy(_._1).mapValues(_.map(_._2).size).toSeq.sortWith(_._2 > _._2)
       EventHandler.info(this, "called serverId Ranking:" + serverIdRanking)
       EventHandler.info(this, "all clients succesfully stopped.")
