@@ -14,15 +14,15 @@ import akka.stm.atomic
 trait LoadReporter {
   this: Actor =>
   protected def requestLoad: Receive = {
-    case msg@RequestLoad => self.reply(ReportLoad(convert(reportLoad)))
+    case msg@RequestLoad => self.reply(ReportLoad(reportLoad(reportPresentLoad)))
   }
 
   // strategy for what value is reported
-  protected def convert(reported: Load): Load = reported
+  protected def reportLoad(reported: Option[Load]): Option[Load] = reported
 
   // report present load
   // override it yourself!
-  protected def reportLoad: Load
+  protected def reportPresentLoad: Option[Load]
 }
 
 // historyLengthのloadの平均値をloadとして返すようなLoadReporter
@@ -32,18 +32,24 @@ trait AverageLoadReporter extends LoadReporter {
   assert(historyLength > 0, "hisoryLength must be positive integer.")
   val history: Ref[Queue[Load]] = Ref[Queue[Load]](Queue.empty)
 
-  override protected def convert(reported: Load) = {
-    atomic {
-      if (history.get.length < historyLength) {
-        history.alter(_.enqueue(reported))
-        val historySeq = history().toSeq
-        historySeq.reduce(_ + _) / historySeq.length
-      } else {
-        history.alter(q => q.dequeue._2)
-        history.alter(_.enqueue(reported))
-        val historySeq = history().toSeq
-        historySeq.reduce(_ + _) / historySeq.length
+  override protected def reportLoad(reported: Option[Load]) = reported match {
+    case Some(load) =>
+      atomic {
+        if (history.get.length < historyLength) {
+          history.alter(_.enqueue(load))
+          val historySeq = history().toSeq
+          Some(historySeq.reduce(_ + _) / historySeq.length)
+        } else {
+          history.alter(q => q.dequeue._2)
+          history.alter(_.enqueue(load))
+          val historySeq = history().toSeq
+          Some(historySeq.reduce(_ + _) / historySeq.length)
+        }
       }
-    }
+    case None =>
+      atomic {
+        history.alter(_ => Queue.empty)
+        None
+      }
   }
 }

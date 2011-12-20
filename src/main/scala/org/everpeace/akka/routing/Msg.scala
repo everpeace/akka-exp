@@ -8,5 +8,6 @@ package org.everpeace.akka.routing
 
 sealed trait Msg
 
-case class ReportLoad(load: Load) extends Msg
+case class ReportLoad(load: Option[Load]) extends Msg
+
 case object RequestLoad extends Msg

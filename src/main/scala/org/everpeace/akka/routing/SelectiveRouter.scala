@@ -113,44 +113,6 @@ trait MapStorageCollector extends Collector {
       case None => Seq.empty
     }
   })
-
-  // 各アクターの負荷を更新するアクター
-  protected val updators: Seq[ActorRef] = for (actor <- actors) yield Actor.actorOf(
-    new Actor {
-      protected def receive = {
-        case RequestLoad =>
-          (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
-            case Some(ReportLoad(load)) => {
-              atomic {
-                loadMap(actor).swap(load)
-              }
-              EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
-            }
-            case None => {
-              atomic {
-                loadMap(actor).swap(null.asInstanceOf[Float])
-              }
-              EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
-            }
-          }
-      }
-    }).start
-
-  //  def updateLoad(actor: ActorRef) = (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
-  //    case Some(ReportLoad(load)) => {
-  //      atomic {
-  //        loadMap(actor).swap(load)
-  //      }
-  //      EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
-  //    }
-  //    case None => {
-  //      atomic {
-  //        loadMap(actor).swap(null.asInstanceOf[Float])
-  //      }
-  //      EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
-  //    }
-  //  }
-
 }
 
 trait PollingCollector extends MapStorageCollector {
@@ -160,19 +122,58 @@ trait PollingCollector extends MapStorageCollector {
   val betweenPollingDelay: Long
   val delayTimeUnit: TimeUnit
 
-  // schedule polling to each actors
-  //  actors foreach {
-  //    actor => Scheduler.schedule(() => updateLoad(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
-  //  }
-  updators foreach {
-    updator => Scheduler.schedule(updator, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
+  // 負荷をポーリングする
+  // 各アクターへの負荷は輻輳しないのでアクターにしない
+  actors foreach {
+    actor => Scheduler.schedule(() => updateLoad(actor), initialDelay, betweenPollingDelay, delayTimeUnit)
   }
+  //  updators foreach {
+  //    updator => Scheduler.schedule(updator, RequestLoad, initialDelay, betweenPollingDelay, delayTimeUnit)
+  //  }
 
   // just returned stored loads
   override def collect = _ => storedLoads
+
+  // actorに負荷を問い合わせて負荷マップを更新する
+  def updateLoad(actor: ActorRef) = (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
+    case Some(ReportLoad(Some(load))) => {
+      atomic {
+        loadMap(actor).swap(load)
+      }
+      EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
+    }
+    case _ => {
+      atomic {
+        loadMap(actor).swap(null.asInstanceOf[Float])
+      }
+      EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
+    }
+  }
 }
 
 trait OnDemandCollector extends MapStorageCollector {
+  // 各アクターの負荷を更新するアクター
+  protected val updators: Seq[ActorRef] = for (actor <- actors) yield Actor.actorOf(
+    new Actor {
+      protected def receive = {
+        case RequestLoad =>
+          (actor.?(RequestLoad)(timeout = loadRequestTimeout)).as[ReportLoad] match {
+            case Some(ReportLoad(Some(load))) => {
+              atomic {
+                loadMap(actor).swap(load)
+              }
+              EventHandler.info(this, "[uuid=" + actor.uuid + "]'s load is updated to " + loadMap(actor).get + ".")
+            }
+            case _ => {
+              atomic {
+                loadMap(actor).swap(null.asInstanceOf[Float])
+              }
+              EventHandler.info(this, "[uuid=" + actor.uuid + "] didn't answer. So the load is reset.")
+            }
+          }
+      }
+    }).start
+
   override def collect = _ => {
     updators foreach (_ ! ReportLoad)
     storedLoads
