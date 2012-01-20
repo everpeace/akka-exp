@@ -102,7 +102,7 @@ object LoadSequenceReportActor {
 }
 
 // テスト用：負荷数値列を負荷として返すようなアクタークラス
-class LoadSequenceReportActor(val name: String, val responseTime: Duration, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
+class  LoadSequenceReportActor(val name: String, val responseTime: Duration, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
   def receive = requestLoad orElse forward
 
   def forward: Receive = {

@@ -17,8 +17,8 @@ object MinLoadSelectiveRoutingTestClientStarter {
 
   def run: Unit = {
     // numClientsクライアントが各numCalls回ロードバランサをコールする
-    val numClients = 4
-    val numCalls = 100
+    val numClients = 3
+    val numCalls = 50
     // コールする間隔を返す関数を用意してやる
     def initialDelay = scala.util.Random.nextInt(100) millis
     def betweenDelay = 1 millis
@@ -60,6 +60,7 @@ object MinLoadSelectiveRoutingTestClientStarter {
           "ResTime(ave,stddev):(%2.3f[ms],%2.3f[ms])  (max=%d[ms], min=%d[ms], %d times),  " +
           "NoResTime(ave,stddev):(%2.3f[ms],%2.3f[ms])  (max=%d[ms], min=%d[ms], %d times)")
           format(name, numRes + numNoRes, resAve, resStdDev, resMax, resMin, numRes, noresAve, noresStdDev, noresMax, noresMin, numNoRes))
+        EventHandler.info(this,"responseTimes:"+c.resTimes)
       }
       val calledServerIds = ((Seq.empty: Seq[Int]) /: clients)(_ ++ _.calledServerIds)
       val serverIdRanking = calledServerIds.map((_, 1)).groupBy(_._1).mapValues(_.map(_._2).size).toSeq.sortWith(_._2 > _._2)
