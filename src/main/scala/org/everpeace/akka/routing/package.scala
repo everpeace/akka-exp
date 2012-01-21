@@ -26,7 +26,7 @@ package object routing {
     lazy val betweenPollingDelay = pollingDelay.toMillis
     lazy val delayTimeUnit = TimeUnit.MILLISECONDS
     lazy val loadRequestTimeout = _loadRequestTimeout
-    lazy val N = 3
+    lazy val N = 1
     lazy val actors = as
 
     override def receive = reportStoredLoad orElse dispatch

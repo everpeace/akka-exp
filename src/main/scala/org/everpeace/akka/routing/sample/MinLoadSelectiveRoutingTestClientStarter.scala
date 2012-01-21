@@ -18,7 +18,7 @@ object MinLoadSelectiveRoutingTestClientStarter {
   def run: Unit = {
     // numClientsクライアントが各numCalls回ロードバランサをコールする
     val numClients = 3
-    val numCalls = 50
+    val numCalls = 100
     // コールする間隔を返す関数を用意してやる
     def initialDelay = scala.util.Random.nextInt(100) millis
     def betweenDelay = 1 millis
@@ -60,8 +60,9 @@ object MinLoadSelectiveRoutingTestClientStarter {
           "ResTime(ave,stddev):(%2.3f[ms],%2.3f[ms])  (max=%d[ms], min=%d[ms], %d times),  " +
           "NoResTime(ave,stddev):(%2.3f[ms],%2.3f[ms])  (max=%d[ms], min=%d[ms], %d times)")
           format(name, numRes + numNoRes, resAve, resStdDev, resMax, resMin, numRes, noresAve, noresStdDev, noresMax, noresMin, numNoRes))
-        EventHandler.info(this,"responseTimes:"+c.resTimes)
+        //        EventHandler.info(this,"responseTimes:"+c.resTimes)
       }
+      EventHandler.info(this, "RoutingTimes:" + clients.flatMap(c => c.resTimes.zip(c.serverTimes).map(t => t._1 - t._2)))
       val calledServerIds = ((Seq.empty: Seq[Int]) /: clients)(_ ++ _.calledServerIds)
       val serverIdRanking = calledServerIds.map((_, 1)).groupBy(_._1).mapValues(_.map(_._2).size).toSeq.sortWith(_._2 > _._2)
       EventHandler.info(this, "called serverId Ranking:" + serverIdRanking)
@@ -79,15 +80,20 @@ case class SampleClient(name: String) {
   var resTimes: Seq[Long] = Nil
   var noResTimes: Seq[Long] = Nil
   var calledServerIds: Seq[Int] = Nil
+  var serverTimes: Seq[Long] = Nil
 
   def call = {
     val start = System.currentTimeMillis()
-    (server ? 1).as[(String, Int)] match {
+    (server ? 1).as[(String, Int, Long)] match {
       case Some(message) => {
         val time = (System.currentTimeMillis() - start)
         resTimes = time +: resTimes
         calledServerIds = message._2 +: calledServerIds
-        EventHandler.info(this, "[" + name + "] [response:" + message._1 + "] (Turn Arround Time = " + time + "[msec])")
+        serverTimes = message._3 +: serverTimes
+        EventHandler.info(this, "[" + name + "] [response:" + message._1 + "] " +
+          "(Turn Arround Time = " + time + "[msec], " +
+          "Server Time= " + message._3 + "[msec]" + ", " +
+          "Routing Time= " + (time - message._3) + "[msec])")
       }
       case None => {
         val time = (System.currentTimeMillis() - start)

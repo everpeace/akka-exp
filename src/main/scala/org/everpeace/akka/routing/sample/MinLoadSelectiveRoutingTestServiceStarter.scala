@@ -31,7 +31,7 @@ class MinLoadSelectiveRoutingService extends Actor {
   // マシンによってあまり増やしすぎるとスレッド数が多くなってパフォーマンス激減する
   val numServers = 4
   val loadMyu = 200 millis // 負荷の平均
-  val loadSigma = 200 millis //負荷の標準偏差
+  val loadSigma = 30 millis //負荷の標準偏差
 
   // サーバー群の作成
   // 各アクターの負荷返答にかかる時間はN(1000[ms],100[ms])な時間を想定する
@@ -102,7 +102,7 @@ object LoadSequenceReportActor {
 }
 
 // テスト用：負荷数値列を負荷として返すようなアクタークラス
-class  LoadSequenceReportActor(val name: String, val responseTime: Duration, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
+class LoadSequenceReportActor(val name: String, val responseTime: Duration, val loadSeq: InfiniteIterator[Load]) extends Actor with LoadSequenceReporter {
   def receive = requestLoad orElse forward
 
   def forward: Receive = {
@@ -146,16 +146,18 @@ object RandomLoadActor {
 // テスト用：正規分布に従う乱数を負荷の履歴の平均を負荷として報告するアクター
 // 負荷リクエスト以外のメッセージが来た場合は、同じ正規分布に従う乱数の時間だけ待つ
 class RandomLoadActor(val name: String, val responseTimeAverage: Duration, val responseTimeStdDev: Duration) extends Actor with RandomLoadReporter {
-  protected lazy val historyLength = 3
+  protected lazy val historyLength = 1
 
   def receive = requestLoad orElse forward
 
   def forward: Receive = {
     case x => {
+      val start = System.currentTimeMillis()
       val retString = "%s called" format (name)
       EventHandler.info(this, retString)
       sleep
-      self.reply((retString, name.replace("actor-", "").toInt))
+      val end = System.currentTimeMillis()
+      self.reply((retString, name.replace("actor-", "").toInt,end-start))
     }
   }
 }
